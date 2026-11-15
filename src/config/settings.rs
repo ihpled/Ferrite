@@ -1611,6 +1611,17 @@ pub enum Theme {
     System,
 }
 
+/// How the top toolbar is presented.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolbarStyle {
+    /// Icon ribbon (default).
+    #[default]
+    Ribbon,
+    /// Classic text menu bar (File, Edit, Paragraph, Format, View, Themes, Help).
+    MenuBar,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Font Family Configuration
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2106,6 +2117,10 @@ pub struct Settings {
     /// Requires restart; ignored on Windows (custom chrome only).
     #[serde(default)]
     pub use_system_title_bar: bool,
+
+    /// Top toolbar style: icon ribbon or classic text menu bar.
+    #[serde(default)]
+    pub toolbar_style: ToolbarStyle,
 
     // ─────────────────────────────────────────────────────────────────────────
     // Editor Behavior
@@ -2609,6 +2624,7 @@ impl Default for Settings {
             cjk_font_preference: CjkFontPreference::default(),
             complex_script_font_preferences: std::collections::BTreeMap::new(),
             use_system_title_bar: false,
+            toolbar_style: ToolbarStyle::default(),
 
             // Editor Behavior
             word_wrap: true,
@@ -3506,6 +3522,25 @@ mod tests {
         assert_eq!(settings.window_size.height, 800.0);
         assert_eq!(settings.split_ratio, 0.5);
         assert!(settings.middle_click_paste);
+    }
+
+    #[test]
+    fn test_toolbar_style_default_and_roundtrip() {
+        assert_eq!(Settings::default().toolbar_style, ToolbarStyle::Ribbon);
+
+        // Old configs without the field keep the ribbon.
+        let parsed: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(parsed.toolbar_style, ToolbarStyle::Ribbon);
+
+        let parsed: Settings = serde_json::from_str(r#"{"toolbar_style":"menu_bar"}"#).unwrap();
+        assert_eq!(parsed.toolbar_style, ToolbarStyle::MenuBar);
+
+        let custom = Settings {
+            toolbar_style: ToolbarStyle::MenuBar,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&custom).unwrap();
+        assert!(json.contains(r#""toolbar_style":"menu_bar""#));
     }
 
     #[test]

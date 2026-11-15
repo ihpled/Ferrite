@@ -6,7 +6,7 @@
 //! Design C: Streamlined ribbon with dropdowns, view controls moved to title bar.
 
 use crate::app::modifier_symbol;
-use crate::config::ViewMode;
+use crate::config::{ShortcutCommand, Theme, ViewMode};
 use crate::markdown::formatting::{FormattingState, MarkdownFormatCommand};
 use crate::state::FileType;
 use crate::theme::ThemeColors;
@@ -138,6 +138,15 @@ pub enum RibbonAction {
     // Frontmatter
     /// Toggle frontmatter editing panel
     ToggleFrontmatter,
+
+    // Menu bar
+    /// Run a shortcut command through the shared command dispatcher
+    /// (same code path as the command palette).
+    Command(ShortcutCommand),
+    /// Switch to a specific color theme.
+    SetTheme(Theme),
+    /// Open the n-th entry of `Settings::recent_files`.
+    OpenRecent(usize),
 }
 
 /// Ribbon UI (icon-only toolbar).

@@ -205,6 +205,14 @@ static ENTRIES: &[SettingEntry] = &[
         render: appearance::render_system_title_bar,
     },
     SettingEntry {
+        id: "appearance.toolbar_style",
+        section: SettingsSection::Appearance,
+        label: || t!("settings.appearance.toolbar_style").to_string(),
+        keywords: &["toolbar", "ribbon", "menu", "menu bar", "menubar", "typora"],
+        featured: false,
+        render: appearance::render_toolbar_style,
+    },
+    SettingEntry {
         id: "appearance.complex_scripts",
         section: SettingsSection::Appearance,
         label: || t!("settings.editor.complex_scripts").to_string(),

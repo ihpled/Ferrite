@@ -3,7 +3,9 @@
 use eframe::egui::{self, RichText, Ui};
 use rust_i18n::{set_locale, t};
 
-use crate::config::{CjkFontPreference, EditorFont, Language, Settings, Theme, ViewMode};
+use crate::config::{
+    CjkFontPreference, EditorFont, Language, Settings, Theme, ToolbarStyle, ViewMode,
+};
 use crate::fonts;
 use crate::markdown::syntax::get_available_themes;
 use crate::ui::phosphor_icons::{DESKTOP, GLOBE, MOON, SUN};
@@ -56,6 +58,46 @@ pub(super) fn render_theme(
             }
         }
     });
+
+    changed
+}
+
+/// Toolbar style selector (icon ribbon / text menu bar). Applies immediately.
+pub(super) fn render_toolbar_style(
+    _panel: &mut SettingsPanel,
+    ui: &mut Ui,
+    ctx: &mut SettingsCtx<'_>,
+) -> bool {
+    let settings = &mut *ctx.settings;
+    let mut changed = false;
+
+    ui.label(RichText::new(t!("settings.appearance.toolbar_style")).strong());
+    ui.add_space(4.0);
+
+    ui.horizontal(|ui| {
+        for (style, label) in [
+            (
+                ToolbarStyle::Ribbon,
+                t!("settings.appearance.toolbar_style_ribbon"),
+            ),
+            (
+                ToolbarStyle::MenuBar,
+                t!("settings.appearance.toolbar_style_menu_bar"),
+            ),
+        ] {
+            if ui
+                .selectable_value(&mut settings.toolbar_style, style, label)
+                .changed()
+            {
+                changed = true;
+            }
+        }
+    });
+    ui.label(
+        RichText::new(t!("settings.appearance.toolbar_style_hint"))
+            .weak()
+            .small(),
+    );
 
     changed
 }

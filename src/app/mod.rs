@@ -32,7 +32,9 @@ mod title_bar_drag;
 mod types;
 mod windows;
 
-use crate::config::{apply_snippet, find_trigger_at_cursor, SnippetManager, ViewMode};
+use crate::config::{
+    apply_snippet, find_trigger_at_cursor, SnippetManager, ToolbarStyle, ViewMode,
+};
 use crate::editor::{cleanup_ferrite_editor, DocumentOutline, DocumentStats, FindReplacePanel};
 use crate::fonts;
 use crate::markdown::{
@@ -52,8 +54,9 @@ use crate::ui::{
     consume_clicks_in_resize_zones, handle_window_resize, load_app_logo_texture,
     markdown_cheatsheet_trigger_rect, render_markdown_cheatsheet, AboutPanel, BacklinksPanel,
     CommandPalette, FileOperationDialog, FileTreeContextAction, FileTreePanel, FrontmatterPanel,
-    OutlinePanel, ProductivityPanel, QuickSwitcher, Ribbon, RibbonAction, RuntimeModulesInfo,
-    SearchPanel, SettingsPanel, TerminalPanel, TerminalPanelState, WelcomePanel, WindowResizeState,
+    MenuBar, MenuBarState, OutlinePanel, ProductivityPanel, QuickSwitcher, Ribbon, RibbonAction,
+    RuntimeModulesInfo, SearchPanel, SettingsPanel, TerminalPanel, TerminalPanelState,
+    WelcomePanel, WindowResizeState,
 };
 use crate::vcs::GitAutoRefresh;
 
@@ -74,6 +77,8 @@ pub struct FerriteApp {
     theme_manager: ThemeManager,
     /// Ribbon UI component
     ribbon: Ribbon,
+    /// Classic text menu bar (alternative to the ribbon, see `Settings::toolbar_style`).
+    menu_bar: MenuBar,
     /// Settings panel component
     settings_panel: SettingsPanel,
     /// About/Help panel component
@@ -549,6 +554,7 @@ impl FerriteApp {
             state,
             theme_manager,
             ribbon: Ribbon::new(),
+            menu_bar: MenuBar::new(),
             settings_panel: SettingsPanel::new(),
             about_panel: AboutPanel::new(),
             welcome_panel: WelcomePanel::new(),
@@ -1800,23 +1806,45 @@ impl FerriteApp {
                         .map(|t| t.auto_save_enabled)
                         .unwrap_or(false);
 
-                    action = self.ribbon.show(
-                        ui,
-                        &theme_colors,
-                        view_mode,
-                        show_line_numbers,
-                        can_save,
-                        self.state.active_tab().is_some(),
-                        formatting_state.as_ref(),
-                        self.state.settings.outline_enabled,
-                        self.state.settings.sync_scroll_enabled,
-                        self.state.is_workspace_mode(),
-                        file_type,
-                        self.state.is_zen_mode(),
-                        auto_save_enabled,
-                        self.state.settings.pipeline_enabled,
-                        self.state.settings.native_window_decorations_enabled(),
-                    );
+                    action = match self.state.settings.toolbar_style {
+                        ToolbarStyle::MenuBar => self.menu_bar.show(
+                            ui,
+                            &MenuBarState {
+                                shortcuts: &self.state.settings.keyboard_shortcuts,
+                                recent_files: &self.state.settings.recent_files,
+                                has_editor: self.state.active_tab().is_some(),
+                                file_type,
+                                is_workspace_mode: self.state.is_workspace_mode(),
+                                theme,
+                                view_mode,
+                                auto_save_enabled,
+                                show_line_numbers,
+                                word_wrap: self.state.settings.word_wrap,
+                                outline_enabled: self.state.settings.outline_enabled,
+                                file_tree_visible: self.state.should_show_file_tree(),
+                                sync_scroll_enabled: self.state.settings.sync_scroll_enabled,
+                                pipeline_enabled: self.state.settings.pipeline_enabled,
+                                zen_mode: self.state.is_zen_mode(),
+                            },
+                        ),
+                        ToolbarStyle::Ribbon => self.ribbon.show(
+                            ui,
+                            &theme_colors,
+                            view_mode,
+                            show_line_numbers,
+                            can_save,
+                            self.state.active_tab().is_some(),
+                            formatting_state.as_ref(),
+                            self.state.settings.outline_enabled,
+                            self.state.settings.sync_scroll_enabled,
+                            self.state.is_workspace_mode(),
+                            file_type,
+                            self.state.is_zen_mode(),
+                            auto_save_enabled,
+                            self.state.settings.pipeline_enabled,
+                            self.state.settings.native_window_decorations_enabled(),
+                        ),
+                    };
                 });
             action
         } else {
@@ -2757,6 +2785,37 @@ impl FerriteApp {
                 self.outline_panel
                     .set_active_tab(crate::ui::OutlinePanelTab::Frontmatter);
                 self.state.mark_settings_dirty();
+            }
+
+            // Menu bar
+            RibbonAction::Command(cmd) => {
+                debug!("Menu bar: {:?}", cmd);
+                self.dispatch_palette_command(ctx, cmd);
+            }
+            RibbonAction::SetTheme(theme) => {
+                debug!("Menu bar: Set theme {:?}", theme);
+                self.theme_manager.set_theme(theme);
+                self.theme_manager
+                    .sync_accent_rgb(self.state.settings.accent_color);
+                self.theme_manager.apply(ctx);
+                self.state.settings.theme = theme;
+                self.state.mark_settings_dirty();
+            }
+            RibbonAction::OpenRecent(index) => {
+                let Some(path) = self.state.settings.recent_files.get(index).cloned() else {
+                    return;
+                };
+                debug!("Menu bar: Open recent {}", path.display());
+                let time = self.get_app_time();
+                let result = self.open_file_smart_in_window(
+                    path,
+                    true,
+                    Some(time),
+                    Some(self.viewport_file_open_window()),
+                );
+                if matches!(result, OpenResult::OpenedTab(_)) {
+                    self.pending_cjk_check = true;
+                }
             }
         }
     }

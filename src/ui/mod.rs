@@ -13,6 +13,7 @@ mod file_tree;
 pub mod format_toolbar;
 mod frontmatter_panel;
 mod icons;
+mod menu_bar;
 mod mermaid_popup;
 mod nav_buttons;
 mod outline_panel;
@@ -43,6 +44,7 @@ pub use frontmatter_panel::{
     parse_frontmatter_fields, FrontmatterField, FrontmatterPanel, FrontmatterValue,
 };
 pub use icons::{get_app_icon, load_app_logo_texture};
+pub use menu_bar::{MenuBar, MenuBarState};
 pub use mermaid_popup::MermaidPopupState;
 pub use nav_buttons::{
     render_markdown_cheatsheet, render_nav_buttons, set_overlay_blocks_nav_buttons, NavAction,

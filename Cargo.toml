@@ -150,6 +150,11 @@ tikv-jemallocator = { version = "0.6", optional = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 gdkx11 = "0.18"
+# Wayland compositors without server-side decorations (GNOME/Mutter) need the
+# client to draw the title bar. eframe builds winit without default features, so
+# winit falls back to its bare FallbackFrame (custom icons, no double-click to
+# maximize). Enable the Adwaita frame instead; Cargo unifies this with eframe's winit.
+winit = { version = "0.30", default-features = false, features = ["wayland-csd-adwaita"] }
 
 [dev-dependencies]
 tempfile = "3"

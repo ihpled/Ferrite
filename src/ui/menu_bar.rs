@@ -189,11 +189,13 @@ impl Menu<'_, '_> {
         }
         ui.separator();
 
+        // The quick file switcher searches the open folder (same as the ribbon,
+        // which only shows it in workspace mode).
         self.command(
             ui,
             t!("menu_bar.file.open_quickly").to_string(),
             ShortcutCommand::QuickOpen,
-            true,
+            self.s.is_workspace_mode,
         );
         let recent = self.s.recent_files;
         ui.add_enabled_ui(!recent.is_empty(), |ui| {

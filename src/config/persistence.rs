@@ -152,9 +152,33 @@ pub fn get_config_dir() -> Result<PathBuf> {
     }
 
     // Fall back to system config directory
-    dirs::config_dir()
-        .map(|base| base.join(APP_NAME))
+    #[cfg(not(test))]
+    let base = dirs::config_dir();
+    // Unit tests must never touch the real user config. Many AppState tests open
+    // or save files, which updates recent files and saves settings; without this
+    // they overwrote ~/.config/ferrite/config.json with defaults, and two such
+    // tests running in parallel could race in `replace_file` and delete it.
+    // Tests that need their own dir still use `with_temp_data_dir`.
+    #[cfg(test)]
+    let base = Some(test_config_base_dir());
+
+    base.map(|base| base.join(APP_NAME))
         .ok_or(Error::ConfigDirNotFound)
+}
+
+/// Per-process scratch base dir used instead of the system config dir in tests.
+#[cfg(test)]
+fn test_config_base_dir() -> PathBuf {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        tempfile::Builder::new()
+            .prefix("ferrite-test-config-")
+            .tempdir()
+            .expect("create test config dir")
+            // Keep the dir for the whole test process; the OS cleans the temp dir.
+            .keep()
+    })
+    .clone()
 }
 
 /// Get the full path to the configuration file.

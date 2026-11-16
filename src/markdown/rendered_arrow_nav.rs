@@ -117,6 +117,24 @@ pub fn adjacent_navigable(
     }
 }
 
+/// Navigable block that holds 1-indexed source `line`: the last block starting at or
+/// before it, or the first block when the line precedes every block (e.g. front matter).
+/// Used by Go to Line in the rendered view.
+pub fn navigable_at_line(blocks: &[BlockRef], line: usize) -> Option<BlockRef> {
+    blocks
+        .iter()
+        .copied()
+        .filter(|b| !matches!(b, BlockRef::TableCell { .. }))
+        .take_while(|b| block_nav_line(*b) <= line)
+        .last()
+        .or_else(|| {
+            blocks
+                .iter()
+                .copied()
+                .find(|b| !matches!(b, BlockRef::TableCell { .. }))
+        })
+}
+
 fn block_nav_line(block: BlockRef) -> usize {
     match block {
         BlockRef::Heading { line, .. }
@@ -309,6 +327,42 @@ mod tests {
             adjacent_navigable(&blocks, None, ArrowNavDir::Up),
             Some(BlockRef::Paragraph { line: 5 })
         );
+    }
+
+    #[test]
+    fn navigable_at_line_picks_containing_block() {
+        let blocks = vec![
+            BlockRef::Heading {
+                line: 3,
+                structural: false,
+            },
+            BlockRef::Paragraph { line: 5 },
+            BlockRef::Paragraph { line: 9 },
+        ];
+        // Exact start line.
+        assert_eq!(
+            navigable_at_line(&blocks, 5),
+            Some(BlockRef::Paragraph { line: 5 })
+        );
+        // Inside a multi-line block / blank line after it.
+        assert_eq!(
+            navigable_at_line(&blocks, 7),
+            Some(BlockRef::Paragraph { line: 5 })
+        );
+        // Past the last block.
+        assert_eq!(
+            navigable_at_line(&blocks, 42),
+            Some(BlockRef::Paragraph { line: 9 })
+        );
+        // Before the first block (front matter, blank lines) → first block.
+        assert_eq!(
+            navigable_at_line(&blocks, 1),
+            Some(BlockRef::Heading {
+                line: 3,
+                structural: false,
+            })
+        );
+        assert_eq!(navigable_at_line(&[], 4), None);
     }
 
     #[test]

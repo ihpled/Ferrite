@@ -58,7 +58,8 @@ use crate::markdown::parser::{
     MarkdownNodeType, TableAlignment,
 };
 use crate::markdown::rendered_arrow_nav::{
-    self, adjacent_navigable, collect_navigable_blocks, scroll_y_for_source_line, ArrowNavDir,
+    self, adjacent_navigable, collect_navigable_blocks, navigable_at_line,
+    scroll_y_for_source_line, ArrowNavDir,
 };
 use crate::markdown::rendered_commit_undo;
 use crate::markdown::rendered_session::{
@@ -1077,15 +1078,86 @@ fn apply_pending_arrow_navigation(
         return;
     };
 
-    let target_line = block_start_line(target);
     // One line per block-to-block move (source lines, 1-indexed): QA evidence that a
     // key press moved the caret even when a screenshot misses the blinking caret.
     debug!(
         "Rendered arrow nav {:?}: line {:?} -> line {}",
         dir,
         current.map(block_start_line),
-        target_line
+        block_start_line(target)
     );
+
+    let cursor_char_index = match dir {
+        ArrowNavDir::Down => Some(0),
+        ArrowNavDir::Up => None, // end of block, resolved after seeding its text
+    };
+    focus_navigable_block(
+        ui,
+        session,
+        source,
+        edit_state,
+        nav_scroll_id,
+        culling,
+        target,
+        cursor_char_index,
+    );
+}
+
+/// Go to Line in the rendered view: open the block that holds 1-indexed source
+/// `line` for editing, scroll it into view and give it keyboard focus with the
+/// caret at its start. Without this, Go to Line only scrolled the preview and the
+/// caret stayed in the previously focused block.
+fn apply_goto_line_focus(
+    ui: &mut Ui,
+    session: &mut RenderedEditSession,
+    source: &mut String,
+    edit_state: &mut EditState,
+    nav_scroll_id: egui::Id,
+    culling: Option<&ViewportCullingState>,
+    line: usize,
+) {
+    let blocks = ui.memory(|m| {
+        m.data
+            .get_temp::<Vec<BlockRef>>(arrow_nav_blocks_key())
+            .unwrap_or_default()
+    });
+    let Some(target) = navigable_at_line(&blocks, line) else {
+        debug!("Rendered go to line {}: no navigable block", line);
+        return;
+    };
+    debug!(
+        "Rendered go to line {} -> block at line {}",
+        line,
+        block_start_line(target)
+    );
+    focus_navigable_block(
+        ui,
+        session,
+        source,
+        edit_state,
+        nav_scroll_id,
+        culling,
+        target,
+        Some(0),
+    );
+}
+
+/// Scroll `target` into view, open it in the edit session and focus it.
+///
+/// `cursor_char_index`: caret position inside the block's edit text; `None`
+/// places it at the end of the block.
+#[allow(clippy::too_many_arguments)]
+fn focus_navigable_block(
+    ui: &mut Ui,
+    session: &mut RenderedEditSession,
+    source: &mut String,
+    edit_state: &mut EditState,
+    nav_scroll_id: egui::Id,
+    culling: Option<&ViewportCullingState>,
+    target: BlockRef,
+    cursor_char_index: Option<usize>,
+) {
+    let target_line = block_start_line(target);
     if let Some(cs) = culling {
         if let Some(y) =
             scroll_y_for_source_line(&cs.block_line_ranges, &cs.block_start_y, target_line)
@@ -1110,10 +1182,8 @@ fn apply_pending_arrow_navigation(
         }
     }
 
-    let cursor_char_index = match dir {
-        ArrowNavDir::Down => Some(0),
-        ArrowNavDir::Up => session.blocks.get(&target).map(|s| s.text.chars().count()),
-    };
+    let cursor_char_index =
+        cursor_char_index.or_else(|| session.blocks.get(&target).map(|s| s.text.chars().count()));
 
     session_switch_to_ui(
         ui,
@@ -1170,6 +1240,8 @@ pub struct MarkdownEditor<'a> {
     id: Option<egui::Id>,
     /// Line number to scroll to (1-indexed, from outline navigation)
     scroll_to_line: Option<usize>,
+    /// Line whose block should take the caret and keyboard focus (1-indexed, Go to Line)
+    focus_line: Option<usize>,
     /// Pending scroll offset to apply (for sync scrolling on mode switch)
     pending_scroll_offset: Option<f32>,
     /// Maximum line width setting for centering text column
@@ -1223,6 +1295,7 @@ impl<'a> MarkdownEditor<'a> {
             accent_rgb: crate::theme::accent::DEFAULT_ACCENT_RGB,
             id: None,
             scroll_to_line: None,
+            focus_line: None,
             pending_scroll_offset: None,
             max_line_width: MaxLineWidth::Off,
             zen_mode: false,
@@ -1286,6 +1359,14 @@ impl<'a> MarkdownEditor<'a> {
     #[must_use]
     pub fn scroll_to_line(mut self, line: Option<usize>) -> Self {
         self.scroll_to_line = line;
+        self
+    }
+
+    /// Move the caret and keyboard focus to the block holding this source line
+    /// (1-indexed). Used by Go to Line; ignored while the preview is locked.
+    #[must_use]
+    pub fn focus_line(mut self, line: Option<usize>) -> Self {
+        self.focus_line = line;
         self
     }
 
@@ -2252,6 +2333,17 @@ impl<'a> MarkdownEditor<'a> {
                     // instead (handled after the scroll area, QA ISS-76).
                     if !self.preview_locked {
                         let culling_for_nav = new_culling.as_ref().or(culling_state.as_ref());
+                        if let Some(line) = self.focus_line {
+                            apply_goto_line_focus(
+                                ui,
+                                &mut rendered_session,
+                                self.content,
+                                &mut edit_state,
+                                nav_scroll_id,
+                                culling_for_nav,
+                                line,
+                            );
+                        }
                         apply_pending_arrow_navigation(
                             ui,
                             &mut rendered_session,

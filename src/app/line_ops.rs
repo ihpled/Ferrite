@@ -63,6 +63,13 @@ impl FerriteApp {
             .set_single(crate::state::Selection::cursor(char_index));
         tab.sync_cursor_from_primary();
 
+        // The rendered (WYSIWYG) view keeps its own per-block caret: ask it to focus
+        // the block holding the target line, otherwise only the scroll would change.
+        // Raw and Split move the caret through `pending_scroll_to_line` below.
+        if tab.view_mode == ViewMode::Rendered {
+            tab.pending_rendered_focus_line = Some(target_line);
+        }
+
         // Use the existing scroll_to_line mechanism to center the line in viewport
         // This is already handled by EditorWidget when pending_scroll_to_line is set
         self.pending_scroll_to_line = Some(target_line);

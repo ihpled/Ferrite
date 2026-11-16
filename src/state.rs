@@ -1517,6 +1517,9 @@ pub struct Tab {
     /// Pending cursor position to restore on next render (for undo/redo)
     /// When Some, the editor widget will restore cursor to this char index
     pub pending_cursor_restore: Option<usize>,
+    /// Pending Go to Line target for the rendered (WYSIWYG) view (1-indexed).
+    /// The rendered editor focuses the block holding this line on next render.
+    pub pending_rendered_focus_line: Option<usize>,
     /// Pending scroll ratio to apply (0.0 to 1.0) - used when content_height is unknown
     pub pending_scroll_ratio: Option<f32>,
     /// Line-to-Y mappings from last rendered mode render (for scroll sync)
@@ -1651,6 +1654,7 @@ impl Tab {
             preview_viewport_height: 0.0,
             pending_scroll_offset: None,
             pending_cursor_restore: None,
+            pending_rendered_focus_line: None,
             pending_scroll_ratio: None,
             rendered_line_mappings: Vec::new(),
             raw_line_height: 20.0, // Default, updated on first render
@@ -1760,6 +1764,7 @@ impl Tab {
             preview_viewport_height: 0.0,
             pending_scroll_offset: None,
             pending_cursor_restore: None,
+            pending_rendered_focus_line: None,
             pending_scroll_ratio: None,
             rendered_line_mappings: Vec::new(),
             raw_line_height: 20.0,
@@ -1877,6 +1882,7 @@ impl Tab {
             preview_viewport_height: 0.0,
             pending_scroll_offset: None,
             pending_cursor_restore: None,
+            pending_rendered_focus_line: None,
             pending_scroll_ratio: None,
             rendered_line_mappings: Vec::new(),
             raw_line_height: 20.0,
@@ -2013,6 +2019,7 @@ impl Tab {
             preview_viewport_height: 0.0,
             pending_scroll_offset: None,
             pending_cursor_restore: None,
+            pending_rendered_focus_line: None,
             pending_scroll_ratio: None,
             rendered_line_mappings: Vec::new(),
             raw_line_height: 20.0,
@@ -2154,6 +2161,7 @@ impl Tab {
             preview_viewport_height: 0.0,
             pending_scroll_offset: None,
             pending_cursor_restore: None,
+            pending_rendered_focus_line: None,
             pending_scroll_ratio: None,
             rendered_line_mappings: Vec::new(),
             raw_line_height: 20.0,
@@ -6657,6 +6665,7 @@ impl AppState {
                                     preview_viewport_height: 0.0,
                                     pending_scroll_offset: None,
                                     pending_cursor_restore: None,
+                                    pending_rendered_focus_line: None,
                                     pending_scroll_ratio: None,
                                     rendered_line_mappings: Vec::new(),
                                     raw_line_height: 20.0,

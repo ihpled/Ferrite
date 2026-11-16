@@ -2815,6 +2815,7 @@ impl FerriteApp {
                                     };
                                     let source_epoch = tab.source_epoch();
                                     let preview_locked = tab.is_preview_locked();
+                                    let focus_line = tab.pending_rendered_focus_line.take();
 
                                     let mut md_editor = MarkdownEditor::new(&mut tab.content)
                                         .mode(EditorMode::Rendered)
@@ -2833,6 +2834,7 @@ impl FerriteApp {
                                         .preview_locked(preview_locked)
                                         .id(rendered_editor_id(tab.id))
                                         .scroll_to_line(scroll_to_line)
+                                        .focus_line(focus_line)
                                         .pending_scroll_offset(pending_offset);
                                     if let Some(ref sh) = search_highlights {
                                         md_editor = md_editor

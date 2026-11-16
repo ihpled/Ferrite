@@ -3687,180 +3687,214 @@ impl<'a> EditableTable<'a> {
                 if self.show_controls && !read_only {
                     ui.add_space(2.0);
 
-                    egui::Frame::new()
-                        .fill(hover_bg)
-                        .inner_margin(egui::Margin::symmetric(8, 6))
-                        .corner_radius(egui::CornerRadius {
-                            nw: 0,
-                            ne: 0,
-                            sw: 6,
-                            se: 6,
-                        })
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 12.0;
+                    // Only show the toolbar while the pointer is over the table (or the
+                    // toolbar itself) or a cell is being edited, so reading a document is
+                    // not cluttered. It keeps its layout space while hidden (invisible and
+                    // non-interactive) so the content below never jumps on hover.
+                    let toolbar_rect_id = table_id.with("toolbar_rect");
+                    let last_toolbar_rect: Option<egui::Rect> =
+                        ui.ctx().data(|d| d.get_temp(toolbar_rect_id));
+                    let table_rect = egui::Rect::from_min_max(
+                        egui::pos2(frame_left, table_top_y),
+                        egui::pos2(frame_left + table_width, table_bottom_y),
+                    );
+                    let hover_rect = last_toolbar_rect.map_or(table_rect, |r| table_rect.union(r));
+                    let show_toolbar = any_cell_has_focus || ui.rect_contains_pointer(hover_rect);
 
-                                let add_row_btn = ui.add(
-                                    egui::Button::new(
-                                        RichText::new(t!("widgets.table.add_row").to_string())
-                                            .size(self.font_size * 0.85)
-                                            .color(control_color),
-                                    )
-                                    .frame(false),
-                                );
-                                if add_row_btn.hovered() {
-                                    ui.painter().text(
-                                        add_row_btn.rect.center(),
-                                        egui::Align2::CENTER_CENTER,
-                                        t!("widgets.table.add_row").to_string(),
-                                        FontId::proportional(self.font_size * 0.85),
-                                        control_hover_color,
-                                    );
-                                }
-                                if add_row_btn
-                                    .on_hover_text(t!("widgets.table.add_row_tooltip").to_string())
-                                    .clicked()
-                                {
-                                    action = Some(TableAction::AddRow);
-                                }
+                    let toolbar_builder = if show_toolbar {
+                        egui::UiBuilder::new()
+                    } else {
+                        // Invisible also disables the buttons.
+                        egui::UiBuilder::new().invisible()
+                    };
+                    let toolbar = ui.scope_builder(toolbar_builder, |ui| {
+                        egui::Frame::new()
+                            .fill(hover_bg)
+                            .inner_margin(egui::Margin::symmetric(8, 6))
+                            .corner_radius(egui::CornerRadius {
+                                nw: 0,
+                                ne: 0,
+                                sw: 6,
+                                se: 6,
+                            })
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 12.0;
 
-                                let add_col_btn = ui.add(
-                                    egui::Button::new(
-                                        RichText::new(t!("widgets.table.add_column").to_string())
-                                            .size(self.font_size * 0.85)
-                                            .color(control_color),
-                                    )
-                                    .frame(false),
-                                );
-                                if add_col_btn.hovered() {
-                                    ui.painter().text(
-                                        add_col_btn.rect.center(),
-                                        egui::Align2::CENTER_CENTER,
-                                        t!("widgets.table.add_column").to_string(),
-                                        FontId::proportional(self.font_size * 0.85),
-                                        control_hover_color,
-                                    );
-                                }
-                                if add_col_btn
-                                    .on_hover_text(
-                                        t!("widgets.table.add_column_tooltip").to_string(),
-                                    )
-                                    .clicked()
-                                {
-                                    action = Some(TableAction::AddColumn);
-                                }
-
-                                if self.data.num_columns > 1 {
-                                    ui.add_space(4.0);
-                                    ui.separator();
-                                    ui.add_space(4.0);
-
-                                    ui.label(
-                                        RichText::new(
-                                            t!("widgets.table.delete_column_label").to_string(),
+                                    let add_row_btn = ui.add(
+                                        egui::Button::new(
+                                            RichText::new(t!("widgets.table.add_row").to_string())
+                                                .size(self.font_size * 0.85)
+                                                .color(control_color),
                                         )
-                                        .size(self.font_size * 0.8)
-                                        .color(control_color),
+                                        .frame(false),
                                     );
-
-                                    for col in 0..self.data.num_columns {
-                                        let col_label = format!("{}", col + 1);
-                                        let del_col_btn = ui.add(
-                                            egui::Button::new(
-                                                RichText::new(&col_label)
-                                                    .size(self.font_size * 0.8)
-                                                    .color(control_color),
-                                            )
-                                            .frame(false)
-                                            .min_size(egui::vec2(16.0, 16.0)),
+                                    if add_row_btn.hovered() {
+                                        ui.painter().text(
+                                            add_row_btn.rect.center(),
+                                            egui::Align2::CENTER_CENTER,
+                                            t!("widgets.table.add_row").to_string(),
+                                            FontId::proportional(self.font_size * 0.85),
+                                            control_hover_color,
                                         );
-                                        if del_col_btn.hovered() {
-                                            ui.painter().text(
-                                                del_col_btn.rect.center(),
-                                                egui::Align2::CENTER_CENTER,
-                                                &col_label,
-                                                FontId::proportional(self.font_size * 0.8),
-                                                control_hover_color,
-                                            );
-                                        }
-                                        if del_col_btn
-                                            .on_hover_text(
-                                                t!(
-                                                    "widgets.table.delete_column",
-                                                    index = (col + 1).to_string()
-                                                )
-                                                .to_string(),
-                                            )
-                                            .clicked()
-                                        {
-                                            action = Some(TableAction::RemoveColumn(col));
-                                        }
                                     }
-                                }
+                                    if add_row_btn
+                                        .on_hover_text(
+                                            t!("widgets.table.add_row_tooltip").to_string(),
+                                        )
+                                        .clicked()
+                                    {
+                                        action = Some(TableAction::AddRow);
+                                    }
 
-                                if self.show_alignment_controls && self.data.num_columns > 0 {
-                                    ui.add_space(4.0);
-                                    ui.separator();
-                                    ui.add_space(4.0);
+                                    let add_col_btn = ui.add(
+                                        egui::Button::new(
+                                            RichText::new(
+                                                t!("widgets.table.add_column").to_string(),
+                                            )
+                                            .size(self.font_size * 0.85)
+                                            .color(control_color),
+                                        )
+                                        .frame(false),
+                                    );
+                                    if add_col_btn.hovered() {
+                                        ui.painter().text(
+                                            add_col_btn.rect.center(),
+                                            egui::Align2::CENTER_CENTER,
+                                            t!("widgets.table.add_column").to_string(),
+                                            FontId::proportional(self.font_size * 0.85),
+                                            control_hover_color,
+                                        );
+                                    }
+                                    if add_col_btn
+                                        .on_hover_text(
+                                            t!("widgets.table.add_column_tooltip").to_string(),
+                                        )
+                                        .clicked()
+                                    {
+                                        action = Some(TableAction::AddColumn);
+                                    }
 
-                                    ui.label(
-                                        RichText::new(t!("widgets.table.align_label").to_string())
+                                    if self.data.num_columns > 1 {
+                                        ui.add_space(4.0);
+                                        ui.separator();
+                                        ui.add_space(4.0);
+
+                                        ui.label(
+                                            RichText::new(
+                                                t!("widgets.table.delete_column_label").to_string(),
+                                            )
                                             .size(self.font_size * 0.8)
                                             .color(control_color),
-                                    );
+                                        );
 
-                                    for col in 0..self.data.num_columns {
-                                        let align = self
-                                            .data
-                                            .alignments
-                                            .get(col)
-                                            .copied()
-                                            .unwrap_or(TableAlignment::None);
-
-                                        let (align_icon, tooltip, use_phosphor) = match align {
-                                            TableAlignment::Left => (
-                                                TEXT_ALIGN_LEFT,
-                                                t!("widgets.table.align_left").to_string(),
-                                                true,
-                                            ),
-                                            TableAlignment::Center => (
-                                                TEXT_ALIGN_CENTER,
-                                                t!("widgets.table.align_center").to_string(),
-                                                true,
-                                            ),
-                                            TableAlignment::Right => (
-                                                TEXT_ALIGN_RIGHT,
-                                                t!("widgets.table.align_right").to_string(),
-                                                true,
-                                            ),
-                                            TableAlignment::None => (
-                                                "—",
-                                                t!("widgets.table.align_none").to_string(),
-                                                false,
-                                            ),
-                                        };
-
-                                        let align_label = if use_phosphor {
-                                            phosphor_rich_text(align_icon, self.font_size * 0.8)
-                                                .color(control_color)
-                                        } else {
-                                            RichText::new(align_icon)
-                                                .size(self.font_size * 0.8)
-                                                .color(control_color)
-                                        };
-
-                                        let align_btn =
-                                            ui.add(egui::Button::new(align_label).frame(false));
-                                        if align_btn
-                                            .on_hover_text(format!("{} (click to cycle)", tooltip))
-                                            .clicked()
-                                        {
-                                            action = Some(TableAction::CycleAlignment(col));
+                                        for col in 0..self.data.num_columns {
+                                            let col_label = format!("{}", col + 1);
+                                            let del_col_btn = ui.add(
+                                                egui::Button::new(
+                                                    RichText::new(&col_label)
+                                                        .size(self.font_size * 0.8)
+                                                        .color(control_color),
+                                                )
+                                                .frame(false)
+                                                .min_size(egui::vec2(16.0, 16.0)),
+                                            );
+                                            if del_col_btn.hovered() {
+                                                ui.painter().text(
+                                                    del_col_btn.rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    &col_label,
+                                                    FontId::proportional(self.font_size * 0.8),
+                                                    control_hover_color,
+                                                );
+                                            }
+                                            if del_col_btn
+                                                .on_hover_text(
+                                                    t!(
+                                                        "widgets.table.delete_column",
+                                                        index = (col + 1).to_string()
+                                                    )
+                                                    .to_string(),
+                                                )
+                                                .clicked()
+                                            {
+                                                action = Some(TableAction::RemoveColumn(col));
+                                            }
                                         }
                                     }
-                                }
+
+                                    if self.show_alignment_controls && self.data.num_columns > 0 {
+                                        ui.add_space(4.0);
+                                        ui.separator();
+                                        ui.add_space(4.0);
+
+                                        ui.label(
+                                            RichText::new(
+                                                t!("widgets.table.align_label").to_string(),
+                                            )
+                                            .size(self.font_size * 0.8)
+                                            .color(control_color),
+                                        );
+
+                                        for col in 0..self.data.num_columns {
+                                            let align = self
+                                                .data
+                                                .alignments
+                                                .get(col)
+                                                .copied()
+                                                .unwrap_or(TableAlignment::None);
+
+                                            let (align_icon, tooltip, use_phosphor) = match align {
+                                                TableAlignment::Left => (
+                                                    TEXT_ALIGN_LEFT,
+                                                    t!("widgets.table.align_left").to_string(),
+                                                    true,
+                                                ),
+                                                TableAlignment::Center => (
+                                                    TEXT_ALIGN_CENTER,
+                                                    t!("widgets.table.align_center").to_string(),
+                                                    true,
+                                                ),
+                                                TableAlignment::Right => (
+                                                    TEXT_ALIGN_RIGHT,
+                                                    t!("widgets.table.align_right").to_string(),
+                                                    true,
+                                                ),
+                                                TableAlignment::None => (
+                                                    "—",
+                                                    t!("widgets.table.align_none").to_string(),
+                                                    false,
+                                                ),
+                                            };
+
+                                            let align_label = if use_phosphor {
+                                                phosphor_rich_text(align_icon, self.font_size * 0.8)
+                                                    .color(control_color)
+                                            } else {
+                                                RichText::new(align_icon)
+                                                    .size(self.font_size * 0.8)
+                                                    .color(control_color)
+                                            };
+
+                                            let align_btn =
+                                                ui.add(egui::Button::new(align_label).frame(false));
+                                            if align_btn
+                                                .on_hover_text(format!(
+                                                    "{} (click to cycle)",
+                                                    tooltip
+                                                ))
+                                                .clicked()
+                                            {
+                                                action = Some(TableAction::CycleAlignment(col));
+                                            }
+                                        }
+                                    }
+                                });
                             });
-                        });
+                    });
+                    let toolbar_rect = toolbar.response.rect;
+                    ui.ctx()
+                        .data_mut(|d| d.insert_temp(toolbar_rect_id, toolbar_rect));
                 }
             });
 

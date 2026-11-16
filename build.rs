@@ -4,9 +4,10 @@
 //! - Windows: Embeds the application icon into the executable
 
 fn main() {
-    // Windows: Embed icon into the executable
-    #[cfg(target_os = "windows")]
-    {
+    // Windows: Embed icon into the executable.
+    // Check the *target* OS (not the host's `cfg`), so the icon is also
+    // embedded when cross-compiling for Windows from Linux or macOS.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let rc_path = std::path::Path::new("assets/icons/windows/app.rc");
         let ico_path = std::path::Path::new("assets/icons/windows/app.ico");
 

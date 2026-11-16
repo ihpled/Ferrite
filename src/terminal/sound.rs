@@ -8,6 +8,12 @@
 /// If `custom_file` is Some and the file exists, attempts to play that file.
 /// Otherwise, falls back to a system beep.
 pub fn play_notification(custom_file: Option<&str>) {
+    // Unit tests exercise the notifier logic (`check_and_notify`); they must not
+    // ring the console bell or spawn `paplay` on the developer's machine.
+    if cfg!(test) {
+        return;
+    }
+
     // Try custom sound file first
     if let Some(path) = custom_file {
         if std::path::Path::new(path).exists() {

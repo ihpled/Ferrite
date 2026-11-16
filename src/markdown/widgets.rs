@@ -1120,6 +1120,45 @@ fn table_cell_galley_paint_pos(
     cell_rect.min - galley.rect.min.to_vec2() + egui::vec2(block_shift, 0.0)
 }
 
+/// Content height of a table cell wrapped at `wrap_w`: the taller of its raw text
+/// (shown by the edit TextEdit) and its display layout (inline formatting).
+///
+/// The display layout can wrap onto more lines than the raw text because code
+/// spans are monospace and headers are bold; sizing rows from the raw text alone
+/// clipped those extra lines.
+#[allow(clippy::too_many_arguments)]
+fn table_cell_content_height(
+    ui: &Ui,
+    text: &str,
+    font_size: f32,
+    editor_font: &EditorFont,
+    code_bg: Color32,
+    wrap_w: f32,
+    is_header: bool,
+    alignment: TableAlignment,
+) -> f32 {
+    let raw = ui.fonts_mut(|f| {
+        f.layout(
+            text.to_owned(),
+            FontId::proportional(font_size),
+            Color32::PLACEHOLDER,
+            wrap_w,
+        )
+    });
+    let display_job = build_table_cell_display_layout_job(
+        text,
+        font_size,
+        editor_font,
+        Color32::PLACEHOLDER,
+        code_bg,
+        wrap_w,
+        is_header,
+        alignment,
+    );
+    let display = ui.fonts_mut(|f| f.layout_job(display_job));
+    raw.size().y.max(display.size().y)
+}
+
 fn build_table_cell_display_layout_job(
     text: &str,
     font_size: f32,
@@ -3164,7 +3203,15 @@ impl<'a> EditableTable<'a> {
             col_widths
         };
 
-        // Pre-measure row heights at the exact column widths
+        // Pre-measure row heights at the exact column widths.
+        //
+        // Measure both the raw text (what the edit TextEdit shows) and the display
+        // layout (inline formatting: monospace code spans, bold header, links), and
+        // keep the taller one. Measuring only the raw text under-sized rows whose
+        // display text wraps more, e.g. `a`, `b` in a narrow column: code spans are
+        // wider than the backtick source, so the second line was drawn outside the
+        // row and covered by the next row's background.
+        let display_font = self.editor_font.clone().unwrap_or(EditorFont::Inter);
         let row_heights: Vec<f32> = (0..self.data.rows.len())
             .map(|ri| {
                 let mut max_h = line_height;
@@ -3173,15 +3220,22 @@ impl<'a> EditableTable<'a> {
                         if let Some(cell) = row.get(ci) {
                             let cw = col_widths.get(ci).copied().unwrap_or(100.0);
                             let wrap_w = (cw - cell_h_pad * 2.0).max(20.0);
-                            let galley = ui.fonts_mut(|f| {
-                                f.layout(
-                                    cell.text.clone(),
-                                    FontId::proportional(self.font_size),
-                                    egui::Color32::PLACEHOLDER,
-                                    wrap_w,
-                                )
-                            });
-                            max_h = max_h.max(galley.size().y);
+                            let alignment = self
+                                .data
+                                .alignments
+                                .get(ci)
+                                .copied()
+                                .unwrap_or(TableAlignment::None);
+                            max_h = max_h.max(table_cell_content_height(
+                                ui,
+                                &cell.text,
+                                self.font_size,
+                                &display_font,
+                                colors.code_bg,
+                                wrap_w,
+                                ri == 0,
+                                alignment,
+                            ));
                         }
                     }
                 }
@@ -8312,6 +8366,74 @@ mod tests {
         assert_eq!(output.code, "code");
         assert_eq!(output.language, "rust");
         assert!(output.insert_output_below.is_none());
+    }
+
+    /// Regression: a cell like `` `sourceId`, `sourceEntityId` `` fits on one line as
+    /// raw text but wraps once rendered (monospace code spans). Row height must
+    /// cover the rendered layout, otherwise the second line is clipped.
+    #[test]
+    fn table_cell_height_covers_display_wrapping() {
+        use eframe::egui;
+
+        let ctx = egui::Context::default();
+        crate::fonts::setup_fonts_lazy(&ctx);
+        let text = "`sourceId`, `sourceEntityId`";
+        let font_size = 14.0;
+        let font = EditorFont::Inter;
+        let code_bg = Color32::from_gray(40);
+
+        let mut checked = false;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show_inside(ctx, |ui| {
+                // Find a width where the raw text is one line but the display wraps.
+                for w in (40..600).step_by(2).map(|w| w as f32) {
+                    let raw = ui.fonts_mut(|f| {
+                        f.layout(
+                            text.to_owned(),
+                            FontId::proportional(font_size),
+                            Color32::PLACEHOLDER,
+                            w,
+                        )
+                    });
+                    let display = ui.fonts_mut(|f| {
+                        f.layout_job(build_table_cell_display_layout_job(
+                            text,
+                            font_size,
+                            &font,
+                            Color32::PLACEHOLDER,
+                            code_bg,
+                            w,
+                            false,
+                            TableAlignment::None,
+                        ))
+                    });
+                    if raw.rows.len() == 1 && display.rows.len() > 1 {
+                        let measured = table_cell_content_height(
+                            ui,
+                            text,
+                            font_size,
+                            &font,
+                            code_bg,
+                            w,
+                            false,
+                            TableAlignment::None,
+                        );
+                        assert!(
+                            measured >= display.size().y,
+                            "width {w}: measured {measured} < rendered {}",
+                            display.size().y
+                        );
+                        assert!(measured > raw.size().y);
+                        checked = true;
+                        break;
+                    }
+                }
+            });
+        });
+        assert!(
+            checked,
+            "expected a width where the rendered cell wraps but the raw text does not"
+        );
     }
 
     /// Regression (ISS-40): TextEdit id must stay stable under layout churn and draft

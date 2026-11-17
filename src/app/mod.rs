@@ -2909,6 +2909,12 @@ impl eframe::App for FerriteApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         crate::diag::next_frame();
         self.video_foreground_occluders.clear();
+        crate::markdown::mermaid::merman_backend::set_use_native_renderer(
+            self.state.settings.mermaid_native_renderer,
+        );
+        if !self.state.settings.mermaid_native_renderer {
+            crate::markdown::mermaid::merman_backend::prewarm();
+        }
 
         #[cfg(windows)]
         {

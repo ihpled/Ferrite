@@ -92,6 +92,20 @@ pub fn validate_mermaid_source(source: &str) -> Result<(), MermaidError> {
 /// Like [`validate_mermaid_source`] but distinguishes non-fatal parser
 /// warnings (diagram still renderable) from hard errors.
 pub fn check_mermaid_source(source: &str) -> MermaidValidation {
+    match check_mermaid_source_native(source) {
+        // Native parsers reject diagram types and syntax they don't know; whatever
+        // merman can render is valid (results are cached, so this is cheap).
+        MermaidValidation::Error(_)
+            if super::merman_backend::enabled()
+                && super::merman_backend::natural_size(source.trim(), 16.0).is_some() =>
+        {
+            MermaidValidation::Ok
+        }
+        other => other,
+    }
+}
+
+fn check_mermaid_source_native(source: &str) -> MermaidValidation {
     let trimmed = source.trim();
     if trimmed.is_empty() {
         return MermaidValidation::Error(MermaidError::from_message(

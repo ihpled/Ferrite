@@ -2,7 +2,7 @@
 name = "ferrite"
 version = "0.3.1"
 edition = "2021"
-rust-version = "1.92"
+rust-version = "1.95"
 description = "A fast, lightweight text editor for Markdown, JSON, and more"
 repository = "https://github.com/OlaProeis/Ferrite"
 license = "MIT"
@@ -130,6 +130,11 @@ hayro = "0.5"
 # `simple-text` enables surface.draw_text(); `raster-images` enables PNG/JPEG embedding.
 krilla = { version = "0.7", features = ["simple-text", "raster-images"] }
 krilla-svg = "0.7"
+# Mermaid.js-compatible layout and SVG rendering (pinned: pre-1.0 API).
+# `complete-svg` excludes the EPL-2.0 ELK layout engine.
+merman = { version = "=0.10.0", default-features = false, features = ["complete-svg", "all-diagrams", "system-fonts"] }
+# Rasterizes merman SVG output; must match the resvg version merman-export uses.
+resvg = { version = "0.47", default-features = false, features = ["text", "system-fonts"] }
 
 [patch.crates-io]
 epaint = { path = "vendor/epaint" }

@@ -2409,6 +2409,11 @@ pub struct Settings {
     #[serde(default)]
     pub strict_line_breaks: bool,
 
+    /// Render Mermaid diagrams with Ferrite's original native renderer instead
+    /// of the Mermaid.js-compatible merman renderer (default: false).
+    #[serde(default)]
+    pub mermaid_native_renderer: bool,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Snippets Settings
     // ─────────────────────────────────────────────────────────────────────────
@@ -2713,6 +2718,7 @@ impl Default for Settings {
             // Markdown Rendering Settings
             header_spacing: HeaderSpacing::default(), // Normal by default
             strict_line_breaks: false,                // Standard markdown: soft breaks are spaces
+            mermaid_native_renderer: false,
 
             // Snippets Settings
             snippets_enabled: true, // Snippet expansion enabled by default
@@ -2815,6 +2821,19 @@ fn serde_error_path(err: &serde_json::Error) -> Option<String> {
 
 fn find_config_field_to_drop(value: &serde_json::Value) -> Option<String> {
     let obj = value.as_object()?;
+
+    // `Settings` is `#[serde(default)]`, so a top-level field is invalid exactly
+    // when an object holding only that field fails to deserialize. Checking each
+    // field alone doesn't depend on the map's key order (serde_json may preserve
+    // insertion order when another crate enables `preserve_order`).
+    for (key, field_value) in obj {
+        let mut single = serde_json::Map::new();
+        single.insert(key.clone(), field_value.clone());
+        if serde_json::from_value::<Settings>(serde_json::Value::Object(single)).is_err() {
+            return Some(key.clone());
+        }
+    }
+
     let baseline = serde_json::from_value::<Settings>(value.clone()).err();
     for key in obj.keys().cloned().collect::<Vec<_>>() {
         let mut trial = value.clone();

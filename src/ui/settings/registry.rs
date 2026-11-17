@@ -360,6 +360,14 @@ static ENTRIES: &[SettingEntry] = &[
         render: editor::render_strict_line_breaks,
     },
     SettingEntry {
+        id: "editor.mermaid_native_renderer",
+        section: SettingsSection::Editor,
+        label: || "Native Mermaid Renderer".to_string(),
+        keywords: &["mermaid", "diagram", "flowchart", "renderer", "native", "merman"],
+        featured: false,
+        render: editor::render_mermaid_native_renderer,
+    },
+    SettingEntry {
         id: "editor.max_line_width",
         section: SettingsSection::Editor,
         label: || t!("settings.editor.max_line_width").to_string(),

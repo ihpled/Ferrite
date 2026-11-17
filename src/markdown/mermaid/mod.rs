@@ -60,6 +60,7 @@ mod git_graph;
 mod journey;
 #[cfg(test)]
 mod measure;
+pub mod merman_backend;
 mod mindmap;
 mod parse_util;
 mod pie;
@@ -120,6 +121,7 @@ where
 ///
 /// Call this when theme or global font settings change.
 pub fn clear_diagram_cache() {
+    merman_backend::clear_cache();
     if let Ok(mut guard) = DIAGRAM_CACHE.lock() {
         if let Some(cache) = guard.as_mut() {
             cache.clear();
@@ -239,6 +241,12 @@ fn measure_mermaid_diagram_impl(
     let source = source.trim();
     if source.is_empty() {
         return None;
+    }
+
+    if merman_backend::enabled() {
+        if let Some(size) = merman_backend::natural_size(source, font_size) {
+            return Some(size);
+        }
     }
 
     let (frontmatter, diagram_source) = parse_frontmatter(source);
@@ -373,6 +381,13 @@ pub fn render_mermaid_diagram(
     let source = source.trim();
     if source.is_empty() {
         return RenderResult::ParseError("Empty diagram source".to_string());
+    }
+
+    // Mermaid.js-compatible rendering; falls back to the native renderer below
+    // for anything merman can't render.
+    if merman_backend::enabled() && merman_backend::paint(ui, source, dark_mode, font_size).is_ok()
+    {
+        return RenderResult::Success;
     }
 
     // Parse YAML frontmatter if present

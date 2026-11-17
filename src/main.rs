@@ -263,6 +263,8 @@ fn main() -> eframe::Result<()> {
     // Initialize logging with the effective log level
     env_logger::Builder::new()
         .filter_level(effective_log_level.to_level_filter())
+        // usvg warns on every Mermaid SVG for harmless CSS (`transform: none`).
+        .filter_module("usvg", log::LevelFilter::Error)
         .init();
 
     info!("Starting {}", APP_NAME);

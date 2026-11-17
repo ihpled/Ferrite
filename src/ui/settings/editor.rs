@@ -250,6 +250,23 @@ pub(super) fn render_strict_line_breaks(
         .changed()
 }
 
+/// Mermaid renderer toggle (merman vs. Ferrite's native renderer).
+pub(super) fn render_mermaid_native_renderer(
+    _panel: &mut SettingsPanel,
+    ui: &mut Ui,
+    ctx: &mut SettingsCtx<'_>,
+) -> bool {
+    ui.checkbox(
+        &mut ctx.settings.mermaid_native_renderer,
+        "Native Mermaid Renderer",
+    )
+    .on_hover_text(
+        "Draw Mermaid diagrams with Ferrite's original renderer instead of the \
+         Mermaid.js-compatible one (layout and look matching Typora / mermaid.live)",
+    )
+    .changed()
+}
+
 /// LSP master toggle plus per-server binary overrides.
 pub(super) fn render_lsp(
     _panel: &mut SettingsPanel,

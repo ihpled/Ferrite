@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crate::markdown::mermaid::text::TextMeasurer;
 
 use super::super::types::*;
+use super::super::utils::subgraph_representative_node;
 use super::config::FlowLayoutConfig;
 
 /// Internal graph representation for layout algorithms.
@@ -73,10 +74,20 @@ impl FlowGraph {
         }
 
         // Build adjacency lists
+        // Edges to/from a subgraph id attach to a representative node inside it.
+        let resolve = |id: &String, outgoing: bool| -> Option<usize> {
+            id_to_index.get(id).copied().or_else(|| {
+                subgraph_representative_node(flowchart, id, outgoing)
+                    .and_then(|node_id| id_to_index.get(node_id).copied())
+            })
+        };
         for edge in &flowchart.edges {
-            if let (Some(&from_idx), Some(&to_idx)) =
-                (id_to_index.get(&edge.from), id_to_index.get(&edge.to))
+            if let (Some(from_idx), Some(to_idx)) =
+                (resolve(&edge.from, true), resolve(&edge.to, false))
             {
+                if from_idx == to_idx {
+                    continue;
+                }
                 outgoing[from_idx].push(to_idx);
                 incoming[to_idx].push(from_idx);
             }

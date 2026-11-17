@@ -34,6 +34,17 @@ pub fn flowchart_diagram_size(flowchart: &Flowchart, layout: &FlowchartLayout) -
     )
 }
 
+/// Rectangle an edge endpoint attaches to: the node, or the subgraph box when
+/// the edge targets a subgraph id (`A --> SubgraphId`, as in Mermaid.js).
+fn edge_endpoint_layout(layout: &FlowchartLayout, id: &str) -> Option<NodeLayout> {
+    layout.nodes.get(id).cloned().or_else(|| {
+        layout.subgraphs.get(id).map(|sg| NodeLayout {
+            pos: sg.pos,
+            size: sg.size,
+        })
+    })
+}
+
 /// Render a flowchart to the UI.
 pub fn render_flowchart(
     ui: &mut egui::Ui,
@@ -58,11 +69,13 @@ pub fn render_flowchart(
             .filter_map(|(idx, edge)| {
                 edge.label.as_ref().map(|label| {
                     // Calculate max label width based on edge geometry
-                    let (from_layout, to_layout) =
-                        match (layout.nodes.get(&edge.from), layout.nodes.get(&edge.to)) {
-                            (Some(f), Some(t)) => (f, t),
-                            _ => return None,
-                        };
+                    let (from_layout, to_layout) = match (
+                        edge_endpoint_layout(layout, &edge.from),
+                        edge_endpoint_layout(layout, &edge.to),
+                    ) {
+                        (Some(f), Some(t)) => (f, t),
+                        _ => return None,
+                    };
                     let from_center = from_layout.pos + from_layout.size / 2.0;
                     let to_center = to_layout.pos + to_layout.size / 2.0;
                     let edge_length = ((to_center.x - from_center.x).powi(2)
@@ -124,9 +137,10 @@ pub fn render_flowchart(
             continue;
         }
 
-        if let (Some(from_layout), Some(to_layout)) =
-            (layout.nodes.get(&edge.from), layout.nodes.get(&edge.to))
-        {
+        if let (Some(from_layout), Some(to_layout)) = (
+            edge_endpoint_layout(layout, &edge.from),
+            edge_endpoint_layout(layout, &edge.to),
+        ) {
             mark_bidirectional_drawn(edge, &mut drawn_bidirectional);
             let label_info = edge_labels.get(&idx);
             let is_back_edge = layout
@@ -150,8 +164,8 @@ pub fn render_flowchart(
                 &painter,
                 edge,
                 idx,
-                from_layout,
-                to_layout,
+                &from_layout,
+                &to_layout,
                 offset,
                 colors,
                 label_font_size,

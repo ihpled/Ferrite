@@ -224,10 +224,48 @@ pub fn parse_flowchart(source: &str) -> Result<Flowchart, String> {
         flowchart.subgraphs.push(subgraph);
     }
 
+    drop_subgraph_placeholder_nodes(&mut flowchart);
+    let node_map: HashMap<String, usize> = flowchart
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (node.id.clone(), idx))
+        .collect();
     collect_position_hints(source, &node_map, &mut flowchart);
     warn_former_first_token_subgraph_edges(&mut flowchart, &former_first_token_ids);
 
     Ok(flowchart)
+}
+
+/// Remove nodes that only exist because an edge referenced a subgraph id.
+///
+/// `A --> SubgraphId` targets the cluster itself (as in Mermaid.js), but the edge
+/// parser creates a bare node for every unknown endpoint. A node whose id matches
+/// a subgraph and that was never given a label or shape is such a placeholder:
+/// drop it so the edge resolves to the subgraph during layout and rendering.
+fn drop_subgraph_placeholder_nodes(flowchart: &mut Flowchart) {
+    let subgraph_ids: HashSet<String> =
+        flowchart.subgraphs.iter().map(|sg| sg.id.clone()).collect();
+    let is_placeholder = |node: &FlowNode| {
+        subgraph_ids.contains(&node.id)
+            && node.label == node.id
+            && node.shape == NodeShape::Rectangle
+    };
+    let placeholders: HashSet<String> = flowchart
+        .nodes
+        .iter()
+        .filter(|node| is_placeholder(node))
+        .map(|node| node.id.clone())
+        .collect();
+    if placeholders.is_empty() {
+        return;
+    }
+    flowchart
+        .nodes
+        .retain(|node| !placeholders.contains(&node.id));
+    for subgraph in &mut flowchart.subgraphs {
+        subgraph.node_ids.retain(|id| !placeholders.contains(id));
+    }
 }
 
 /// Result of attempting to parse a `%% @pos` comment line.
@@ -1326,5 +1364,46 @@ end
     fn empty_edge_label_delimiters_do_not_panic() {
         let result = parse_edge_line_full("A -->|| B");
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn edge_to_subgraph_id_does_not_create_placeholder_node() {
+        let source = r#"flowchart LR
+    subgraph S[Sources]
+        A[Alpha]
+    end
+    subgraph CH[Connector Host]
+        B[Beta]
+        C[Gamma]
+    end
+    A -.-> CH
+    CH --> D[Delta]"#;
+        let flowchart = parse_flowchart(source).unwrap();
+        assert!(
+            flowchart.nodes.iter().all(|n| n.id != "CH"),
+            "subgraph id must not become a node: {:?}",
+            flowchart.nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
+        );
+        assert!(flowchart
+            .edges
+            .iter()
+            .any(|e| e.from == "A" && e.to == "CH"));
+        assert!(flowchart
+            .edges
+            .iter()
+            .any(|e| e.from == "CH" && e.to == "D"));
+        let ch = flowchart.subgraphs.iter().find(|sg| sg.id == "CH").unwrap();
+        assert_eq!(ch.node_ids, vec!["B".to_string(), "C".to_string()]);
+    }
+
+    #[test]
+    fn node_defined_with_subgraph_id_and_label_is_kept() {
+        let source = r#"flowchart TD
+    subgraph G
+        X
+    end
+    G[Real node] --> X"#;
+        let flowchart = parse_flowchart(source).unwrap();
+        assert!(flowchart.nodes.iter().any(|n| n.id == "G"));
     }
 }

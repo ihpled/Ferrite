@@ -270,6 +270,45 @@ pub(crate) fn find_node_subgraph<'a>(
     None
 }
 
+/// Pick a real node standing in for a subgraph used as an edge endpoint.
+///
+/// Mermaid.js lays out `A --> SubgraphId` by attaching the edge to a node
+/// inside the cluster and clipping it at the cluster border; this returns that
+/// node. Edges entering the cluster use its first node, edges leaving it use its
+/// last node. Nested subgraphs are searched when the cluster has no direct nodes.
+pub(crate) fn subgraph_representative_node<'a>(
+    flowchart: &'a Flowchart,
+    subgraph_id: &str,
+    outgoing: bool,
+) -> Option<&'a str> {
+    fn search<'a>(
+        flowchart: &'a Flowchart,
+        subgraph_id: &str,
+        outgoing: bool,
+        depth: usize,
+    ) -> Option<&'a str> {
+        if depth > 32 {
+            return None;
+        }
+        let subgraph = flowchart.subgraphs.iter().find(|sg| sg.id == subgraph_id)?;
+        let direct = if outgoing {
+            subgraph.node_ids.last()
+        } else {
+            subgraph.node_ids.first()
+        };
+        if let Some(id) = direct {
+            return Some(id.as_str());
+        }
+        let mut children: Box<dyn Iterator<Item = &String>> = if outgoing {
+            Box::new(subgraph.child_subgraph_ids.iter().rev())
+        } else {
+            Box::new(subgraph.child_subgraph_ids.iter())
+        };
+        children.find_map(|child| search(flowchart, child, outgoing, depth + 1))
+    }
+    search(flowchart, subgraph_id, outgoing, 0)
+}
+
 /// Calculate intersection point of a line segment with a rectangle's border.
 /// Returns the intersection point closest to `from` on the way to `to`.
 pub(crate) fn line_rect_intersection(from: Pos2, to: Pos2, rect: Rect) -> Option<Pos2> {

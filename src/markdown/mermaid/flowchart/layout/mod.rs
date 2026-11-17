@@ -452,4 +452,33 @@ mod pos_hint_layout_tests {
             }
         }
     }
+
+    #[test]
+    fn edge_to_subgraph_ranks_via_representative_node() {
+        let source = r#"flowchart LR
+    subgraph S[Sources]
+        A[Alpha]
+    end
+    subgraph CH[Connector Host]
+        B[Beta]
+    end
+    A -.-> CH
+    CH --> D[Delta]"#;
+        let flowchart = parse_flowchart(source).unwrap();
+        let text_measurer = EstimatedTextMeasurer::new();
+        let layout = layout_flowchart(&flowchart, 800.0, 14.0, &text_measurer);
+
+        assert!(!layout.nodes.contains_key("CH"));
+        let a = &layout.nodes["A"];
+        let b = &layout.nodes["B"];
+        let d = &layout.nodes["D"];
+        assert!(
+            a.pos.x + a.size.x < b.pos.x,
+            "A must precede the CH cluster"
+        );
+        assert!(b.pos.x + b.size.x < d.pos.x, "D must follow the CH cluster");
+        let ch = &layout.subgraphs["CH"];
+        let s = &layout.subgraphs["S"];
+        assert!(s.pos.x + s.size.x <= ch.pos.x, "clusters must not overlap");
+    }
 }

@@ -107,17 +107,28 @@ pub fn check_mermaid_source(source: &str) -> MermaidValidation {
         },
         // Prefer the native verdict when it agrees: it carries the line number
         // and a hint, which merman's diagnostics don't.
-        Err(MermanError::Syntax(msg)) => match check_mermaid_source_native(source) {
+        Err(MermanError::Syntax { message, offset }) => match check_mermaid_source_native(source) {
             MermaidValidation::Error(native) | MermaidValidation::Warning(native) => {
                 MermaidValidation::Error(native)
             }
             MermaidValidation::Ok => {
-                MermaidValidation::Error(MermaidError::from_message(source, msg))
+                let mut err = MermaidError::from_message(source, message);
+                if let Some(offset) = offset {
+                    err.line = merman_line(source, offset);
+                }
+                MermaidValidation::Error(err)
             }
         },
         // merman can't render it for other reasons: the native renderer will.
         Err(MermanError::Other(_)) => check_mermaid_source_native(source),
     }
+}
+
+/// Line in `source` of a merman error `offset`, which indexes `source.trim()`.
+fn merman_line(source: &str, offset: usize) -> usize {
+    let leading = source.len() - source.trim_start().len();
+    let skipped_lines = source[..leading].matches('\n').count();
+    super::merman_backend::line_of_offset(source.trim(), offset) + skipped_lines
 }
 
 fn check_mermaid_source_native(source: &str) -> MermaidValidation {
@@ -478,6 +489,14 @@ mod tests {
         let err = validate_mermaid_source(src).unwrap_err();
         assert_eq!(err.line, 3);
         assert!(err.message.contains("unknown commit id"));
+    }
+
+    #[test]
+    fn merman_only_syntax_error_reports_its_line() {
+        // The native flowchart parser accepts the dangling pipe; merman doesn't.
+        let src = "\nflowchart LR\n  A --> B\n  B -->|yes| C\n  D --> A -->|\n";
+        let err = validate_mermaid_source(src).unwrap_err();
+        assert_eq!(err.line, 5, "{err:?}");
     }
 
     #[test]

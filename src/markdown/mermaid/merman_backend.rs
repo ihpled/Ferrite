@@ -93,7 +93,11 @@ fn fonts() -> Option<&'static NativeFontContext> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MermanError {
     /// The source has a Mermaid syntax error (Mermaid.js would reject it too).
-    Syntax(String),
+    Syntax {
+        message: String,
+        /// Byte offset of the error in the rendered source, when merman knows it.
+        offset: Option<usize>,
+    },
     /// Anything else (fonts, SVG, limits, panics): use the native renderer instead.
     Other(String),
 }
@@ -101,7 +105,9 @@ pub enum MermanError {
 impl std::fmt::Display for MermanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MermanError::Syntax(msg) | MermanError::Other(msg) => f.write_str(msg),
+            MermanError::Syntax { message, .. } | MermanError::Other(message) => {
+                f.write_str(message)
+            }
         }
     }
 }
@@ -206,7 +212,13 @@ fn render_diagram(source: &str, dark: bool) -> Result<Diagram, MermanError> {
     let output = renderer
         .render(RenderRequest::svg(source, OperationControl::new(), request))
         .map_err(|e| match e {
-            RenderError::Parse(diagnostic) => MermanError::Syntax(diagnostic.to_string()),
+            RenderError::Parse(diagnostic) => MermanError::Syntax {
+                message: diagnostic.to_string(),
+                offset: diagnostic
+                    .terminal_diagnostic_details()
+                    .span
+                    .map(|span| span.start),
+            },
             other_error => other(&other_error),
         })?;
     let RenderOutput::Svg(Some(svg)) = output else {
@@ -222,6 +234,19 @@ fn render_diagram(source: &str, dark: bool) -> Result<Diagram, MermanError> {
     let tree = usvg::Tree::from_str(svg.svg(), &options).map_err(|e| other(&e))?;
     let size = Vec2::new(tree.size().width(), tree.size().height());
     Ok(Diagram { tree, size })
+}
+
+/// 1-indexed line of a byte `offset` in `source`.
+///
+/// An offset at a line break or at the end of the input (merman's "expected
+/// more" insertion points) is reported on the last line with content, which is
+/// where the user is typing.
+pub fn line_of_offset(source: &str, offset: usize) -> usize {
+    let mut end = offset.min(source.len());
+    while !source.is_char_boundary(end) {
+        end -= 1;
+    }
+    source[..end].trim_end().matches('\n').count() + 1
 }
 
 /// Whether merman renders `source` (cached; also used for validation).
@@ -379,10 +404,26 @@ mod tests {
     }
 
     #[test]
+    fn offsets_map_to_lines() {
+        let source = "flowchart LR\n  A --> B\n  D -->|\n";
+        assert_eq!(line_of_offset(source, 0), 1);
+        assert_eq!(line_of_offset(source, source.find('|').unwrap()), 3);
+        // End-of-input insertion point lands on the last line with content.
+        assert_eq!(line_of_offset(source, source.len()), 3);
+        assert_eq!(line_of_offset(source, 10_000), 3);
+    }
+
+    #[test]
     fn incomplete_edge_is_a_syntax_error() {
         let result = check("flowchart LR\n  A --> B\n  D --> A -->|\n");
         assert!(
-            matches!(result, Err(MermanError::Syntax(_))),
+            matches!(
+                result,
+                Err(MermanError::Syntax {
+                    offset: Some(_),
+                    ..
+                })
+            ),
             "expected syntax error, got {result:?}"
         );
     }

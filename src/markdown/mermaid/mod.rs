@@ -246,7 +246,7 @@ fn measure_mermaid_diagram_impl(
     if merman_backend::enabled() {
         match merman_backend::check(source) {
             Ok(()) => return merman_backend::natural_size(source, font_size),
-            Err(merman_backend::MermanError::Syntax(_)) => return None,
+            Err(merman_backend::MermanError::Syntax { .. }) => return None,
             Err(merman_backend::MermanError::Other(_)) => {}
         }
     }
@@ -392,7 +392,9 @@ pub fn render_mermaid_diagram(
             Ok(()) => return RenderResult::Success,
             // Same verdict Mermaid.js would give; the native parsers are more
             // lenient and would draw a different (wrong) diagram.
-            Err(merman_backend::MermanError::Syntax(msg)) => return RenderResult::ParseError(msg),
+            Err(merman_backend::MermanError::Syntax { message, .. }) => {
+                return RenderResult::ParseError(message)
+            }
             Err(merman_backend::MermanError::Other(_)) => {}
         }
     }

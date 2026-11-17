@@ -92,16 +92,31 @@ pub fn validate_mermaid_source(source: &str) -> Result<(), MermaidError> {
 /// Like [`validate_mermaid_source`] but distinguishes non-fatal parser
 /// warnings (diagram still renderable) from hard errors.
 pub fn check_mermaid_source(source: &str) -> MermaidValidation {
-    match check_mermaid_source_native(source) {
-        // Native parsers reject diagram types and syntax they don't know; whatever
-        // merman can render is valid (results are cached, so this is cheap).
-        MermaidValidation::Error(_)
-            if super::merman_backend::enabled()
-                && super::merman_backend::natural_size(source.trim(), 16.0).is_some() =>
-        {
-            MermaidValidation::Ok
-        }
-        other => other,
+    use super::merman_backend::{self, MermanError};
+
+    if !merman_backend::enabled() || source.trim().is_empty() {
+        return check_mermaid_source_native(source);
+    }
+    // merman decides validity like Mermaid.js: it accepts diagram types the
+    // native parsers don't know and rejects syntax they would leniently accept.
+    match merman_backend::check(source.trim()) {
+        Ok(()) => match check_mermaid_source_native(source) {
+            // Native-only warnings (e.g. unknown `%% @pos` node id) still apply.
+            warning @ MermaidValidation::Warning(_) => warning,
+            _ => MermaidValidation::Ok,
+        },
+        // Prefer the native verdict when it agrees: it carries the line number
+        // and a hint, which merman's diagnostics don't.
+        Err(MermanError::Syntax(msg)) => match check_mermaid_source_native(source) {
+            MermaidValidation::Error(native) | MermaidValidation::Warning(native) => {
+                MermaidValidation::Error(native)
+            }
+            MermaidValidation::Ok => {
+                MermaidValidation::Error(MermaidError::from_message(source, msg))
+            }
+        },
+        // merman can't render it for other reasons: the native renderer will.
+        Err(MermanError::Other(_)) => check_mermaid_source_native(source),
     }
 }
 

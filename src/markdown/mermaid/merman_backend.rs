@@ -21,7 +21,7 @@ use egui::{Color32, Rect, Sense, TextureHandle, TextureOptions, Ui, Vec2};
 use merman::svg::export::{NativeFontContext, NativeFontOptions};
 use merman::svg::{SvgPipeline, SvgPipelinePreset};
 use merman::{
-    MermaidEngine, OperationControl, RenderOutput, RenderRequest, Renderer,
+    MermaidEngine, OperationControl, RenderError, RenderOutput, RenderRequest, Renderer,
     SourcePresentationConfig, SvgEnvironment, SvgRequest,
 };
 use resvg::{tiny_skia, usvg};
@@ -89,6 +89,23 @@ fn fonts() -> Option<&'static NativeFontContext> {
         .as_ref()
 }
 
+/// Why merman could not render a diagram.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MermanError {
+    /// The source has a Mermaid syntax error (Mermaid.js would reject it too).
+    Syntax(String),
+    /// Anything else (fonts, SVG, limits, panics): use the native renderer instead.
+    Other(String),
+}
+
+impl std::fmt::Display for MermanError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MermanError::Syntax(msg) | MermanError::Other(msg) => f.write_str(msg),
+        }
+    }
+}
+
 /// A rendered diagram: the parsed SVG tree and its natural size in CSS pixels.
 struct Diagram {
     tree: usvg::Tree,
@@ -110,16 +127,16 @@ struct TextureKey {
 
 #[derive(Default)]
 struct DiagramCache {
-    entries: HashMap<DiagramKey, Result<Arc<Diagram>, String>>,
+    entries: HashMap<DiagramKey, Result<Arc<Diagram>, MermanError>>,
     order: VecDeque<DiagramKey>,
 }
 
 impl DiagramCache {
-    fn get(&self, key: &DiagramKey) -> Option<Result<Arc<Diagram>, String>> {
+    fn get(&self, key: &DiagramKey) -> Option<Result<Arc<Diagram>, MermanError>> {
         self.entries.get(key).cloned()
     }
 
-    fn insert(&mut self, key: DiagramKey, value: Result<Arc<Diagram>, String>) {
+    fn insert(&mut self, key: DiagramKey, value: Result<Arc<Diagram>, MermanError>) {
         if self.entries.insert(key, value).is_none() {
             self.order.push_back(key);
         }
@@ -138,7 +155,7 @@ fn hash_source(source: &str) -> u64 {
 }
 
 /// Render (or fetch from cache) the diagram for `source`.
-fn diagram(source: &str, dark: bool) -> Result<Arc<Diagram>, String> {
+fn diagram(source: &str, dark: bool) -> Result<Arc<Diagram>, MermanError> {
     let key = DiagramKey {
         source_hash: hash_source(source),
         dark,
@@ -154,10 +171,10 @@ fn diagram(source: &str, dark: bool) -> Result<Arc<Diagram>, String> {
     // merman is designed to be panic-free, but a diagram must never take the
     // editor down: treat a panic like any other render failure.
     let result = std::panic::catch_unwind(|| render_diagram(source, dark))
-        .unwrap_or_else(|_| Err("merman panicked".to_string()))
+        .unwrap_or_else(|_| Err(MermanError::Other("merman panicked".to_string())))
         .map(Arc::new);
     if let Err(err) = &result {
-        log::debug!("merman: falling back to native renderer: {err}");
+        log::debug!("merman: cannot render diagram: {err:?}");
     }
     if let Ok(mut guard) = DIAGRAMS.lock() {
         guard
@@ -167,13 +184,14 @@ fn diagram(source: &str, dark: bool) -> Result<Arc<Diagram>, String> {
     result
 }
 
-fn render_diagram(source: &str, dark: bool) -> Result<Diagram, String> {
+fn render_diagram(source: &str, dark: bool) -> Result<Diagram, MermanError> {
+    let other = |e: &dyn std::fmt::Display| MermanError::Other(e.to_string());
     let fonts = fonts();
     let mut environment = SvgEnvironment::deterministic();
     if let Some(fonts) = fonts {
         environment = environment
             .with_native_font_context(fonts.clone())
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| other(&e))?;
     }
     let site_config = SourcePresentationConfig::from_value(serde_json::json!({
         "theme": if dark { "dark" } else { "default" },
@@ -187,18 +205,38 @@ fn render_diagram(source: &str, dark: bool) -> Result<Diagram, String> {
     };
     let output = renderer
         .render(RenderRequest::svg(source, OperationControl::new(), request))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| match e {
+            RenderError::Parse(diagnostic) => MermanError::Syntax(diagnostic.to_string()),
+            other_error => other(&other_error),
+        })?;
     let RenderOutput::Svg(Some(svg)) = output else {
-        return Err("no Mermaid diagram detected".to_string());
+        return Err(MermanError::Other(
+            "no Mermaid diagram detected".to_string(),
+        ));
     };
 
     let mut options = usvg::Options::default();
     if let Some(fonts) = fonts {
         fonts.apply_to_usvg_options(&mut options);
     }
-    let tree = usvg::Tree::from_str(svg.svg(), &options).map_err(|e| e.to_string())?;
+    let tree = usvg::Tree::from_str(svg.svg(), &options).map_err(|e| other(&e))?;
     let size = Vec2::new(tree.size().width(), tree.size().height());
     Ok(Diagram { tree, size })
+}
+
+/// Whether merman renders `source` (cached; also used for validation).
+pub fn check(source: &str) -> Result<(), MermanError> {
+    let source_hash = hash_source(source);
+    let cached = DIAGRAMS.lock().ok().and_then(|guard| {
+        let cache = guard.as_ref()?;
+        [false, true]
+            .into_iter()
+            .find_map(|dark| cache.get(&DiagramKey { source_hash, dark }))
+    });
+    match cached {
+        Some(result) => result.map(|_| ()),
+        None => diagram(source, false).map(|_| ()),
+    }
 }
 
 /// Natural on-screen size (in points) of the diagram, or `None` if merman can't render it.
@@ -208,9 +246,9 @@ pub fn natural_size(source: &str, font_size: f32) -> Option<Vec2> {
     let source_hash = hash_source(source);
     let cached = DIAGRAMS.lock().ok().and_then(|guard| {
         let cache = guard.as_ref()?;
-        [false, true].into_iter().find_map(|dark| {
-            cache.get(&DiagramKey { source_hash, dark })
-        })
+        [false, true]
+            .into_iter()
+            .find_map(|dark| cache.get(&DiagramKey { source_hash, dark }))
     });
     let diagram = match cached {
         Some(result) => result.ok()?,
@@ -220,7 +258,7 @@ pub fn natural_size(source: &str, font_size: f32) -> Option<Vec2> {
 }
 
 /// Paint the diagram at the cursor. Returns `Err` (painting nothing) if merman can't render it.
-pub fn paint(ui: &mut Ui, source: &str, dark: bool, font_size: f32) -> Result<(), String> {
+pub fn paint(ui: &mut Ui, source: &str, dark: bool, font_size: f32) -> Result<(), MermanError> {
     let diagram = diagram(source, dark)?;
     let points_per_css_px = font_size / MERMAID_BASE_FONT_SIZE;
     let display_size = diagram.size * points_per_css_px;
@@ -248,7 +286,7 @@ pub fn paint(ui: &mut Ui, source: &str, dark: bool, font_size: f32) -> Result<()
         },
         density_bits: density.to_bits(),
     };
-    let texture = texture(ui.ctx(), key, &diagram, density)?;
+    let texture = texture(ui.ctx(), key, &diagram, density).map_err(MermanError::Other)?;
     ui.painter().image(
         texture.id(),
         rect,
@@ -289,10 +327,8 @@ fn texture(
         &mut pixmap.as_mut(),
     );
     // tiny-skia stores premultiplied RGBA, which is what egui expects.
-    let image = egui::ColorImage::from_rgba_premultiplied(
-        [width as usize, height as usize],
-        pixmap.data(),
-    );
+    let image =
+        egui::ColorImage::from_rgba_premultiplied([width as usize, height as usize], pixmap.data());
     let handle = ctx.load_texture("mermaid-merman", image, TextureOptions::LINEAR);
     textures.push_back((key, handle.clone()));
     while textures.len() > MAX_TEXTURES {
@@ -340,5 +376,14 @@ mod tests {
     #[test]
     fn garbage_is_an_error_not_a_panic() {
         assert!(diagram("this is not mermaid", false).is_err());
+    }
+
+    #[test]
+    fn incomplete_edge_is_a_syntax_error() {
+        let result = check("flowchart LR\n  A --> B\n  D --> A -->|\n");
+        assert!(
+            matches!(result, Err(MermanError::Syntax(_))),
+            "expected syntax error, got {result:?}"
+        );
     }
 }

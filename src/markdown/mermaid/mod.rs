@@ -244,8 +244,10 @@ fn measure_mermaid_diagram_impl(
     }
 
     if merman_backend::enabled() {
-        if let Some(size) = merman_backend::natural_size(source, font_size) {
-            return Some(size);
+        match merman_backend::check(source) {
+            Ok(()) => return merman_backend::natural_size(source, font_size),
+            Err(merman_backend::MermanError::Syntax(_)) => return None,
+            Err(merman_backend::MermanError::Other(_)) => {}
         }
     }
 
@@ -385,9 +387,14 @@ pub fn render_mermaid_diagram(
 
     // Mermaid.js-compatible rendering; falls back to the native renderer below
     // for anything merman can't render.
-    if merman_backend::enabled() && merman_backend::paint(ui, source, dark_mode, font_size).is_ok()
-    {
-        return RenderResult::Success;
+    if merman_backend::enabled() {
+        match merman_backend::paint(ui, source, dark_mode, font_size) {
+            Ok(()) => return RenderResult::Success,
+            // Same verdict Mermaid.js would give; the native parsers are more
+            // lenient and would draw a different (wrong) diagram.
+            Err(merman_backend::MermanError::Syntax(msg)) => return RenderResult::ParseError(msg),
+            Err(merman_backend::MermanError::Other(_)) => {}
+        }
     }
 
     // Parse YAML frontmatter if present
